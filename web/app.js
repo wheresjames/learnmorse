@@ -13,7 +13,7 @@ const DEFAULT_TEXTS=[
   ['default-word-morse','Word-Length Morse','Zara discovered a coded line in the radio shack while a quick storm shook the glass windows and a fox barked beyond the jetty. The line read: “fox javelin vintage zephyrs / owl map quickly / jackets vintage / red zephyrs javelin”. Beneath it was the rule: “A three-letter word is a dot; a seven-letter word is a dash. Slashes separate Morse letters.” She copied the groups carefully beside a quartz dial and checked every word length twice.'],
   ['default-odd','Odd Positions','In the baggage room of an old express train, Luca found a brass key stamped with the serial VXAYUZLQT. Beside it lay a note saying, “Count from the left and keep only letters in odd-numbered positions.” A cracked mirror reflected a violet jacket, a zinc toolbox, and a faded poster of Quebec. Outside, snow blew past the windows as the midnight train jolted forward.']
 ].map(([id,name,text])=>({id,name,text}));
-const defaults={characterSpeed:40,wordSpeed:20,textSpeed:10,tonePitch:650,fontSize:72,symbolSize:25,foreground:'#f4f7fb',morseColor:'#8fa3bc',background:'#080b10',accent:'#315e8c',cursorColor:'#ffc857',markerOffset:0,repeat:false,volume:55};
+const defaults={characterSpeed:40,wordSpeed:20,textSpeed:10,tonePitch:650,fontSize:72,symbolSize:25,foreground:'#f4f7fb',morseColor:'#8fa3bc',background:'#080b10',accent:'#315e8c',cursorColor:'#ffc857',markerOffset:0,repeat:false,volume:55,showSymbols:false};
 let state={settings:{...defaults},draft:DEFAULT_TEXTS[0].text,selectedText:DEFAULT_TEXTS[0].id,practiceTexts:DEFAULT_TEXTS.map(item=>({...item}))};
 let playing=false,elapsed=0,startAt=0,totalDuration=0,lastIndex=-1,raf=0,audio=null,audioOscillator=null,audioGain=null,audioWarmed=false,audioTimelineStart=0,nextAudioIndex=0,audioScheduler=null,saveTimer=null,toastTimer=null;
 let storageMode='memory';
@@ -45,7 +45,7 @@ function normalizeSavedSpeeds(){
   s.textSpeed=Math.max(5,Math.min(s.characterSpeed,+s.textSpeed||defaults.textSpeed));
   s.wordSpeed=Math.max(s.textSpeed,Math.min(s.characterSpeed,+s.wordSpeed||defaults.wordSpeed));
 }
-function hydrate(){practiceText.value=state.draft||'';settingIds.forEach(id=>$(id).value=state.settings[id]);syncSpeedLimits();applyTheme();applyMarkerOffset();updateRepeatButton();updateLabels()}
+function hydrate(){practiceText.value=state.draft||'';settingIds.forEach(id=>$(id).value=state.settings[id]);syncSpeedLimits();applyTheme();applyMarkerOffset();updateRepeatButton();applySymbols();updateLabels()}
 function persist(){
   clearTimeout(saveTimer);saveStatus.textContent=storageMode==='memory'?'Session only':'Saving…';
   saveTimer=setTimeout(async()=>{
@@ -68,6 +68,13 @@ function applyMarkerOffset(){
   scanLine.style.left=position;scanGlow.style.left=`calc(15% - 50px + ${offset}px)`;
   markerStatus.textContent=`Marker ${offset>0?'+':''}${offset}px · reset`;
   markerStatus.classList.toggle('visible',offset!==0);
+}
+function applySymbols(){
+  const show=!!state.settings.showSymbols;
+  viewport.classList.toggle('hide-symbols',!show);
+  symbolsButton.classList.toggle('active',show);
+  symbolsButton.setAttribute('aria-pressed',String(show));
+  symbolsButton.textContent=show?'Hide Morse symbols':'Show Morse symbols';
 }
 function updateRepeatButton(){repeatButton.classList.toggle('active',!!state.settings.repeat);repeatButton.setAttribute('aria-pressed',String(!!state.settings.repeat));repeatButton.title=state.settings.repeat?'Repeat is on':'Repeat continuously'}
 function updateLabels(){characterSpeedValue.value=state.settings.characterSpeed+' WPM';wordSpeedValue.value=state.settings.wordSpeed+' WPM';textSpeedValue.value=state.settings.textSpeed+' WPM';tonePitchValue.value=state.settings.tonePitch+' Hz';fontSizeValue.value=state.settings.fontSize+'px';symbolSizeValue.value=state.settings.symbolSize+'px';volumeValue.value=state.settings.volume+'%'}
@@ -93,7 +100,9 @@ function charDuration(ch){
   const sounded=signalUnits*1.2/state.settings.characterSpeed;
   return Math.max(sounded+3*1.2/state.settings.wordSpeed,12/state.settings.wordSpeed);
 }
-function renderTrack(){playing=false;cancelAnimationFrame(raf);stopAudioScheduler();silenceAudio();playButton.innerHTML='<span class="play-icon">▶</span>';track.innerHTML='';elapsed=0;lastIndex=-1;const chars=[...state.draft.replace(/\s+/g,' ')];let at=0;chars.forEach((ch,i)=>{const d=charDuration(ch),cell=document.createElement('div');cell.className='morse-cell';cell.dataset.start=at;cell.dataset.duration=d;cell.innerHTML=`<span class="glyph">${escapeHtml(ch)}</span><span class="symbols">${renderMorse(MORSE[ch.toUpperCase()]||'')}</span>`;track.appendChild(cell);const contentWidth=Math.max(cell.querySelector('.glyph').scrollWidth,cell.querySelector('.symbols').scrollWidth)+32;cell.style.width=Math.max(70,d*130,contentWidth)+'px';at+=d});totalDuration=at;emptyStage.style.display=chars.length?'none':'flex';positionTrack();updateTime()}
+function renderTrack(){playing=false;cancelAnimationFrame(raf);stopAudioScheduler();silenceAudio();playButton.innerHTML='<span class="play-icon">▶</span>';track.innerHTML='';elapsed=0;lastIndex=-1;const chars=[...state.draft.replace(/\s+/g,' ')];let at=0;chars.forEach((ch,i)=>{const d=charDuration(ch),cell=document.createElement('div');cell.className='morse-cell';cell.dataset.start=at;cell.dataset.duration=d;cell.innerHTML=`<span class="glyph">${escapeHtml(ch)}</span><span class="symbols">${renderMorse(MORSE[ch.toUpperCase()]||'')}</span>`;track.appendChild(cell);sizeCell(cell);at+=d});totalDuration=at;emptyStage.style.display=chars.length?'none':'flex';positionTrack();updateTime()}
+function sizeCell(cell){const contentWidth=Math.max(cell.querySelector('.glyph').scrollWidth,cell.querySelector('.symbols').scrollWidth)+32;cell.style.width=Math.max(70,(+cell.dataset.duration)*130,contentWidth)+'px'}
+function sizeCells(){[...track.children].forEach(sizeCell)}
 function renderMorse(code){return [...code].map(mark=>`<i class="morse-mark morse-${mark==='.'?'dot':'dash'}"></i>`).join('')}
 function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function positionTrack(){const cells=[...track.children];let x=viewport.clientWidth*.15;if(cells.length){let remaining=elapsed;for(const cell of cells){const d=+cell.dataset.duration,w=cell.offsetWidth;if(remaining<=d){x-=w*(remaining/d);break}remaining-=d;x-=w}}track.style.transform=`translate3d(${x}px,-50%,0)`;progress.value=totalDuration?elapsed/totalDuration*1000:0;cells.forEach((c,i)=>{c.classList.toggle('past',+c.dataset.start+(+c.dataset.duration)<=elapsed);c.classList.toggle('active',i===currentIndex())})}
@@ -200,6 +209,7 @@ scanLine.onpointerdown=e=>{
   };
 };
 markerStatus.onclick=()=>{state.settings.markerOffset=0;applyMarkerOffset();persist();showToast('Marker position reset')};
+symbolsButton.onclick=()=>{state.settings.showSymbols=!state.settings.showSymbols;applySymbols();sizeCells();positionTrack();persist();showToast(state.settings.showSymbols?'Morse symbols shown':'Morse symbols hidden')};
 playButton.onclick=togglePlay;restartButton.onclick=()=>{elapsed=0;lastIndex=-1;positionTrack();updateTime();if(playing)startAudioTimeline()};repeatButton.onclick=()=>{state.settings.repeat=!state.settings.repeat;updateRepeatButton();persist();showToast(state.settings.repeat?'Repeat enabled':'Repeat disabled')};progress.oninput=()=>{elapsed=totalDuration*(progress.value/1000);positionTrack();updateTime();if(playing)startAudioTimeline()};window.onresize=positionTrack;document.addEventListener('keydown',e=>{if(e.code==='Space'&&!['INPUT','TEXTAREA','BUTTON'].includes(document.activeElement.tagName)){e.preventDefault();togglePlay()}});
 audioExportButton.onclick=downloadAudio;
 load();

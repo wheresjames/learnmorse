@@ -15,3 +15,5 @@
 .round-button.active{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 22%,var(--panel));color:var(--accent);box-shadow:0 0 16px color-mix(in srgb,var(--accent) 20%,transparent)}
 @media(max-width:500px){#repeatButton,#audioExportButton{display:block}}
 .brand-mark,.play-button,.primary-button{color:#fff}
+.stage-toggles{display:flex;justify-content:center;padding:12px 26px 0}.chip-button{border:1px solid var(--line);background:var(--panel2);color:var(--muted);border-radius:99px;padding:7px 15px;font-size:11px;font-weight:750;letter-spacing:.02em;cursor:pointer}.chip-button:hover{border-color:var(--accent)}.chip-button.active{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 22%,var(--panel));color:var(--accent)}
+.viewport.hide-symbols .symbols{display:none}.viewport.hide-symbols .morse-cell{gap:0}

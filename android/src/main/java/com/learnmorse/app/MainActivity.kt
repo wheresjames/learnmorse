@@ -36,7 +36,7 @@ val DEFAULT_PRACTICE_TEXTS = listOf(
 data class Settings(
     var charWpm: Int = 40, var wordWpm: Int = 20, var textWpm: Int = 10,
     var pitch: Int = 650, var fontSize: Int = 72, var symbolSize: Int = 25,
-    var volume: Int = 55, var repeat: Boolean = false, var markerOffset: Int = 0, var foreground: Int = Color.rgb(244,247,251),
+    var volume: Int = 55, var repeat: Boolean = false, var showSymbols: Boolean = false, var markerOffset: Int = 0, var foreground: Int = Color.rgb(244,247,251),
     var morseColor: Int = Color.rgb(143,163,188), var background: Int = Color.rgb(8,11,16),
     var accent: Int = Color.rgb(49,94,140), var marker: Int = Color.rgb(255,200,87)
 )
@@ -50,6 +50,7 @@ class MainActivity : Activity() {
     private lateinit var trainer: MorseView
     private lateinit var play: Button
     private lateinit var repeatButton: Button
+    private lateinit var symbolsButton: Button
     private var pendingAudioText=""
     private var pendingAudioFormat="m4a"
     private var loading = true
@@ -95,13 +96,16 @@ class MainActivity : Activity() {
         leftPane.addView(sectionHeader("LIVE PRACTICE", ""))
         trainer = MorseView(this, settings).apply { onMarkerOffsetChanged={offset->settings.markerOffset=offset;saveState()};text=prefs.getString("draft","CQ CQ DE LEARN MORSE") ?: "" }
         leftPane.addView(trainer, LinearLayout.LayoutParams(MATCH,dp(if(landscape)190 else 180)))
-        val transport = LinearLayout(this).apply { gravity=Gravity.CENTER; setPadding(0,dp(10),0,dp(18)) }
-        transport.addView(Button(this).apply { text="◀";textSize=20f;setTextColor(settings.foreground);background=transportButtonBackground(false);elevation=0f;stateListAnimator=null;contentDescription="Restart from beginning";setOnClickListener { trainer.restart() } }, LinearLayout.LayoutParams(dp(58),dp(52)))
+        // Five buttons have to sit side by side on a 360dp-wide phone, so the row is kept compact.
+        val transport = LinearLayout(this).apply { gravity=Gravity.CENTER; setPadding(0,dp(8),0,dp(18)) }
+        transport.addView(Button(this).apply { text="◀";textSize=20f;setTextColor(settings.foreground);background=transportButtonBackground(false);elevation=0f;stateListAnimator=null;contentDescription="Restart from beginning";setOnClickListener { trainer.restart() } }, LinearLayout.LayoutParams(dp(54),dp(52)))
         play = Button(this).apply { text="▶"; textSize=20f; setTextColor(Color.WHITE); background=round(settings.accent,30f); setOnClickListener { val active=trainer.toggle(); text=if(active) "Ⅱ" else "▶" } }
-        transport.addView(play, LinearLayout.LayoutParams(dp(72),dp(60)).apply { marginStart=dp(12); marginEnd=dp(12) })
+        transport.addView(play, LinearLayout.LayoutParams(dp(68),dp(60)).apply { marginStart=dp(10); marginEnd=dp(10) })
         repeatButton=Button(this).apply{text="↻";textSize=20f;elevation=0f;stateListAnimator=null;contentDescription="Repeat continuously";setOnClickListener{settings.repeat=!settings.repeat;trainer.repeat=settings.repeat;updateRepeatButton();saveState()}}
-        transport.addView(repeatButton,LinearLayout.LayoutParams(dp(58),dp(52)));updateRepeatButton()
-        transport.addView(Button(this).apply{text="⇩";textSize=20f;setTextColor(settings.foreground);background=transportButtonBackground(false);elevation=0f;stateListAnimator=null;contentDescription="Save audio file";setOnClickListener{chooseAudioExport()}},LinearLayout.LayoutParams(dp(58),dp(52)).apply{marginStart=dp(8)})
+        transport.addView(repeatButton,LinearLayout.LayoutParams(dp(54),dp(52)));updateRepeatButton()
+        transport.addView(Button(this).apply{text="⇩";textSize=20f;setTextColor(settings.foreground);background=transportButtonBackground(false);elevation=0f;stateListAnimator=null;contentDescription="Save audio file";setOnClickListener{chooseAudioExport()}},LinearLayout.LayoutParams(dp(54),dp(52)).apply{marginStart=dp(6)})
+        symbolsButton=Button(this).apply{text="·−";textSize=18f;setPadding(0,0,0,0);elevation=0f;stateListAnimator=null;setOnClickListener{settings.showSymbols=!settings.showSymbols;trainer.settings=settings;updateSymbolsButton();saveState()}}
+        transport.addView(symbolsButton,LinearLayout.LayoutParams(dp(54),dp(52)).apply{marginStart=dp(6)});updateSymbolsButton()
         leftPane.addView(transport)
 
         rightPane.addView(card().apply {
@@ -125,9 +129,9 @@ class MainActivity : Activity() {
 
         rightPane.addView(card().apply {
             addView(sectionHeader("TIMING & TONE", ""))
-            addView(speedControl("Character speed","Dots and dashes",settings.charWpm){ value -> settings.charWpm=max(value,settings.wordWpm); trainer.settings=settings; saveState(); rebuildControls() })
-            addView(speedControl("Word speed","Complete-word cadence",settings.wordWpm){ value -> settings.wordWpm=max(value,settings.textWpm); if(settings.wordWpm>settings.charWpm) settings.charWpm=settings.wordWpm; trainer.settings=settings; saveState(); rebuildControls() })
-            addView(speedControl("Text speed","Overall reading pace",settings.textWpm){ value -> settings.textWpm=value; if(value>settings.wordWpm)settings.wordWpm=value;if(value>settings.charWpm)settings.charWpm=value;trainer.settings=settings;saveState();rebuildControls() })
+            addView(speedControl("Character speed","Dots and dashes",settings.charWpm,settings.wordWpm){ value -> settings.charWpm=max(value,settings.wordWpm); trainer.settings=settings; saveState(); rebuildControls() })
+            addView(speedControl("Word speed","Complete-word cadence",settings.wordWpm,settings.textWpm){ value -> settings.wordWpm=max(value,settings.textWpm); if(settings.wordWpm>settings.charWpm) settings.charWpm=settings.wordWpm; trainer.settings=settings; saveState(); rebuildControls() })
+            addView(speedControl("Text speed","Overall reading pace",settings.textWpm,null){ value -> settings.textWpm=value; if(value>settings.wordWpm)settings.wordWpm=value;if(value>settings.charWpm)settings.charWpm=value;trainer.settings=settings;saveState();rebuildControls() })
             addView(valueControl("Tone pitch","Comfortable range: 300–1200 Hz",settings.pitch,300,1200," Hz"){settings.pitch=it;trainer.settings=settings;saveState()})
         }.also { it.tag="controls" },marginParams())
 
@@ -145,25 +149,26 @@ class MainActivity : Activity() {
     private fun rebuildControls() {
         window.decorView.post { if (!isFinishing) {
             val controls=findViewByTag(window.decorView,"controls") as? LinearLayout ?: return@post
-            fun update(index:Int,value:Int){
+            fun update(index:Int,value:Int,limit:Int?){
                 val box=controls.getChildAt(index) as? LinearLayout ?: return
                 val row=box.getChildAt(0) as? LinearLayout ?: return
                 (row.getChildAt(1) as? TextView)?.text="$value WPM"
-                (box.getChildAt(1) as? SeekBar)?.progress=value-5
+                (box.getChildAt(1) as? LimitSeekBar)?.apply{progress=value-5;this.limit=limit}
             }
-            update(1,settings.charWpm);update(2,settings.wordWpm);update(3,settings.textWpm)
+            update(1,settings.charWpm,settings.wordWpm);update(2,settings.wordWpm,settings.textWpm);update(3,settings.textWpm,null)
         }}
     }
 
+    private fun updateSymbolsButton(){symbolsButton.isSelected=settings.showSymbols;symbolsButton.setTextColor(if(settings.showSymbols)Color.WHITE else settings.foreground);symbolsButton.background=transportButtonBackground(settings.showSymbols);symbolsButton.contentDescription=if(settings.showSymbols)"Hide Morse symbols" else "Show Morse symbols"}
     private fun updateRepeatButton(){repeatButton.isSelected=settings.repeat;repeatButton.setTextColor(if(settings.repeat)Color.WHITE else settings.foreground);repeatButton.background=transportButtonBackground(settings.repeat);repeatButton.contentDescription=if(settings.repeat)"Repeat enabled" else "Repeat disabled"}
 
-    private fun speedControl(title:String, hint:String, value:Int, changed:(Int)->Unit)=valueControl(title,hint,value,5,100," WPM",changed)
-    private fun valueControl(title:String,hint:String,value:Int,min:Int,max:Int,suffix:String,changed:(Int)->Unit):View {
+    private fun speedControl(title:String, hint:String, value:Int, limit:Int?, changed:(Int)->Unit)=valueControl(title,hint,value,5,100," WPM",limit,changed)
+    private fun valueControl(title:String,hint:String,value:Int,min:Int,max:Int,suffix:String,limit:Int?=null,changed:(Int)->Unit):View {
         val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(0,dp(12),0,dp(6))}
         val row=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
         row.addView(label(title,14f,settings.foreground,true),LinearLayout.LayoutParams(0,WRAP,1f))
         val output=label("$value$suffix",13f,settings.accent,true);row.addView(output);box.addView(row)
-        box.addView(SeekBar(this).apply{this.max=max-min;progress=value-min;progressTintList=android.content.res.ColorStateList.valueOf(settings.accent);thumbTintList=android.content.res.ColorStateList.valueOf(settings.accent);setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){};override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean){if(user){val v=p+min;output.text="$v$suffix";changed(v)}}})})
+        box.addView(LimitSeekBar(this).apply{this.max=max-min;progress=value-min;this.limitMin=min;this.limit=limit;this.panelColor=Color.rgb(36,42,50);progressTintList=android.content.res.ColorStateList.valueOf(settings.accent);thumbTintList=android.content.res.ColorStateList.valueOf(settings.accent);setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){};override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean){if(user){val v=p+min;output.text="$v$suffix";changed(v)}}})})
         box.addView(label(hint,11f,settings.morseColor,false));return box
     }
 
@@ -173,8 +178,8 @@ class MainActivity : Activity() {
     }
 
     private fun savePractice(){val n=name.text.toString().trim();val t=practice.text.toString().trim();if(n.isEmpty()||t.isEmpty()){Toast.makeText(this,"Add a name and some practice text",Toast.LENGTH_SHORT).show();return};val old=saved.indexOfFirst{it.name.equals(n,true)};if(old>=0)saved[old]=PracticeText(n,t)else saved.add(0,PracticeText(n,t));saveState();Toast.makeText(this,"Practice text saved",Toast.LENGTH_SHORT).show();hideKeyboard()}
-    private fun loadState(){try{val o=JSONObject(prefs.getString("settings","{}")!!);settings.charWpm=o.optInt("charWpm",40);settings.wordWpm=o.optInt("wordWpm",20);settings.textWpm=o.optInt("textWpm",10);settings.pitch=o.optInt("pitch",650);settings.fontSize=o.optInt("fontSize",72);settings.symbolSize=o.optInt("symbolSize",25);settings.volume=o.optInt("volume",55);settings.repeat=o.optBoolean("repeat",false);settings.markerOffset=o.optInt("markerOffset",0);if(!prefs.contains("texts")){saved.addAll(DEFAULT_PRACTICE_TEXTS)}else{val a=JSONArray(prefs.getString("texts","[]"));for(i in 0 until a.length()){val p=a.getJSONObject(i);saved+=PracticeText(p.getString("name"),p.getString("text"))}};settings.textWpm=settings.textWpm.coerceIn(5,100);settings.wordWpm=settings.wordWpm.coerceIn(settings.textWpm,100);settings.charWpm=settings.charWpm.coerceIn(settings.wordWpm,100)}catch(_:Exception){if(!prefs.contains("texts"))saved.addAll(DEFAULT_PRACTICE_TEXTS)}}
-    private fun saveState(){if(loading)return;val o=JSONObject().put("charWpm",settings.charWpm).put("wordWpm",settings.wordWpm).put("textWpm",settings.textWpm).put("pitch",settings.pitch).put("fontSize",settings.fontSize).put("symbolSize",settings.symbolSize).put("volume",settings.volume).put("repeat",settings.repeat).put("markerOffset",settings.markerOffset);val a=JSONArray();saved.forEach{a.put(JSONObject().put("name",it.name).put("text",it.text))};prefs.edit().putString("settings",o.toString()).putString("texts",a.toString()).putString("draft",if(::practice.isInitialized)practice.text.toString() else "").apply()}
+    private fun loadState(){try{val o=JSONObject(prefs.getString("settings","{}")!!);settings.charWpm=o.optInt("charWpm",40);settings.wordWpm=o.optInt("wordWpm",20);settings.textWpm=o.optInt("textWpm",10);settings.pitch=o.optInt("pitch",650);settings.fontSize=o.optInt("fontSize",72);settings.symbolSize=o.optInt("symbolSize",25);settings.volume=o.optInt("volume",55);settings.repeat=o.optBoolean("repeat",false);settings.showSymbols=o.optBoolean("showSymbols",false);settings.markerOffset=o.optInt("markerOffset",0);if(!prefs.contains("texts")){saved.addAll(DEFAULT_PRACTICE_TEXTS)}else{val a=JSONArray(prefs.getString("texts","[]"));for(i in 0 until a.length()){val p=a.getJSONObject(i);saved+=PracticeText(p.getString("name"),p.getString("text"))}};settings.textWpm=settings.textWpm.coerceIn(5,100);settings.wordWpm=settings.wordWpm.coerceIn(settings.textWpm,100);settings.charWpm=settings.charWpm.coerceIn(settings.wordWpm,100)}catch(_:Exception){if(!prefs.contains("texts"))saved.addAll(DEFAULT_PRACTICE_TEXTS)}}
+    private fun saveState(){if(loading)return;val o=JSONObject().put("charWpm",settings.charWpm).put("wordWpm",settings.wordWpm).put("textWpm",settings.textWpm).put("pitch",settings.pitch).put("fontSize",settings.fontSize).put("symbolSize",settings.symbolSize).put("volume",settings.volume).put("repeat",settings.repeat).put("showSymbols",settings.showSymbols).put("markerOffset",settings.markerOffset);val a=JSONArray();saved.forEach{a.put(JSONObject().put("name",it.name).put("text",it.text))};prefs.edit().putString("settings",o.toString()).putString("texts",a.toString()).putString("draft",if(::practice.isInitialized)practice.text.toString() else "").apply()}
     private fun chooseAudioExport(){pendingAudioText=practice.text.toString().replace(Regex("\\s+")," ");if(pendingAudioText.isBlank()){Toast.makeText(this,"Enter some practice text first",Toast.LENGTH_SHORT).show();return};if(MorseWav.duration(pendingAudioText,settings)>1800){Toast.makeText(this,"Audio is longer than 30 minutes; increase the speed or shorten the text",Toast.LENGTH_LONG).show();return};AlertDialog.Builder(this).setTitle("Save audio as").setItems(arrayOf("M4A / AAC — smaller file","WAV — lossless")){_,which->requestAudioExport(if(which==0)"m4a" else "wav")}.show()}
     private fun requestAudioExport(format:String){pendingAudioFormat=format;val base=name.text.toString().trim().ifEmpty{"learn-morse"}.replace(Regex("[^A-Za-z0-9_-]+"),"-").trim('-');startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type=if(format=="m4a")"audio/mp4" else "audio/wav";putExtra(Intent.EXTRA_TITLE,"$base.$format")},AUDIO_EXPORT_REQUEST)}
     override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?){super.onActivityResult(requestCode,resultCode,data);if(requestCode==LIBRARY_REQUEST){saved.clear();try{val a=JSONArray(prefs.getString("texts","[]"));for(i in 0 until a.length()){val p=a.getJSONObject(i);saved+=PracticeText(p.getString("name"),p.getString("text"))}}catch(_:Exception){};if(resultCode==RESULT_OK){practice.setText(data?.getStringExtra("text")?:"");name.setText(data?.getStringExtra("name")?:"");play.text="▶"}}else if(requestCode==AUDIO_EXPORT_REQUEST&&resultCode==RESULT_OK){val uri=data?.data?:return;val text=pendingAudioText;val format=pendingAudioFormat;val snapshot=settings.copy();Thread{try{if(format=="m4a"){contentResolver.openFileDescriptor(uri,"rw")?.use{MorseM4a.write(it.fileDescriptor,text,snapshot)}?:error("Unable to open destination")}else{contentResolver.openOutputStream(uri)?.use{MorseWav.write(it,text,snapshot)}?:error("Unable to open destination")};runOnUiThread{Toast.makeText(this,"${format.uppercase()} audio saved",Toast.LENGTH_SHORT).show()}}catch(e:Exception){runOnUiThread{Toast.makeText(this,"Could not save audio: ${e.message}",Toast.LENGTH_LONG).show()}}}.start()}}
@@ -189,6 +194,29 @@ class MainActivity : Activity() {
     private fun hideKeyboard(){(getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(practice.windowToken,0)}
     private fun findViewByTag(v:View,tag:Any):View?{if(v.tag==tag)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findViewByTag(v.getChildAt(i),tag)?.let{return it};return null}
     companion object { const val MATCH=-1;const val WRAP=-2;const val LIBRARY_REQUEST=42;const val AUDIO_EXPORT_REQUEST=43 }
+}
+
+/** SeekBar that paints a red dot on the track marking the lowest value this slider may take. */
+class LimitSeekBar(context:Context):SeekBar(context){
+    private val dot=Paint(Paint.ANTI_ALIAS_FLAG)
+    var limitMin=0
+    var panelColor=Color.rgb(36,42,50)
+    var limit:Int?=null;set(value){field=value;invalidate()}
+    override fun onDraw(canvas:Canvas){
+        super.onDraw(canvas)
+        val mark=limit?:return
+        val d=resources.displayMetrics.density
+        val thumbWidth=thumb?.intrinsicWidth?:0
+        val span=width-paddingLeft-paddingRight-thumbWidth
+        val fraction=((mark-limitMin).toFloat()/kotlin.math.max(1,this.max)).coerceIn(0f,1f)
+        val cx=paddingLeft+thumbWidth/2f+span*fraction
+        val cy=height/2f
+        val outer=kotlin.math.min(8f*d,cy)
+        dot.style=Paint.Style.FILL
+        dot.color=Color.argb(90,255,82,103);canvas.drawCircle(cx,cy,outer,dot)
+        dot.color=panelColor;canvas.drawCircle(cx,cy,outer*0.81f,dot)
+        dot.color=Color.rgb(255,82,103);canvas.drawCircle(cx,cy,outer*0.56f,dot)
+    }
 }
 
 class LibraryActivity:Activity(){
@@ -237,8 +265,10 @@ class MorseView(context:Context, initial:Settings):View(context) {
         if(settings.markerOffset!=0){paint.textAlign=Paint.Align.LEFT;paint.typeface=Typeface.DEFAULT_BOLD;paint.textSize=sp(9f);paint.color=withAlpha(settings.marker,220);c.drawText("CAL ${if(settings.markerOffset>0)"+" else ""}${settings.markerOffset} dp",dp(8f),height-dp(8f),paint)}
         var x=baseMarker.toDouble();var rem=elapsed
         for(cell in cells){val w=cellWidth(cell);if(rem<=cell.duration){x-=w*(rem/cell.duration);break};rem-=cell.duration;x-=w}
-        paint.textAlign=Paint.Align.CENTER;val centerY=height*.43f
-        cells.forEach{cell->val w=cellWidth(cell);val cx=(x+w/2).toFloat();if(cx>-w&&cx<width+w){paint.color=if(cell.start+cell.duration<elapsed)withAlpha(settings.foreground,70)else settings.foreground;paint.textSize=sp(settings.fontSize.toFloat());paint.typeface=Typeface.MONOSPACE;c.drawText(cell.char.toString(),cx,centerY,paint);drawCode(c,cell.code,cx,centerY+dp(42f),cell.start+cell.duration<elapsed)};x+=w}
+        paint.textAlign=Paint.Align.CENTER;paint.typeface=Typeface.MONOSPACE;paint.textSize=sp(settings.fontSize.toFloat())
+        // With the code hidden the character is the only thing on the track, so centre it on the baseline.
+        val centerY=if(settings.showSymbols)height*.43f else height/2f-(paint.fontMetrics.ascent+paint.fontMetrics.descent)/2f
+        cells.forEach{cell->val w=cellWidth(cell);val cx=(x+w/2).toFloat();if(cx>-w&&cx<width+w){paint.color=if(cell.start+cell.duration<elapsed)withAlpha(settings.foreground,70)else settings.foreground;paint.textSize=sp(settings.fontSize.toFloat());paint.typeface=Typeface.MONOSPACE;c.drawText(cell.char.toString(),cx,centerY,paint);if(settings.showSymbols)drawCode(c,cell.code,cx,centerY+dp(42f),cell.start+cell.duration<elapsed)};x+=w}
         if(playing){elapsed=((SystemClock.elapsedRealtimeNanos()-started)/1e9).coerceAtMost(total);val idx=cells.indexOfLast{elapsed+AUDIO_LOOKAHEAD>=it.start+it.duration/2};if(idx!=lastSound&&idx>=0){lastSound=idx;if(cells[idx].code.isNotEmpty()){val center=cells[idx].start+cells[idx].duration/2;audio.playAt(cells[idx].code,settings.charWpm,started+(center*1e9).toLong())}};if(elapsed>=total){if(repeat){elapsed=0.0;lastSound=-1;started=SystemClock.elapsedRealtimeNanos();postInvalidateOnAnimation()}else playing=false}else postInvalidateOnAnimation()}
     }
     override fun onTouchEvent(event:MotionEvent):Boolean{
@@ -251,7 +281,7 @@ class MorseView(context:Context, initial:Settings):View(context) {
         };return super.onTouchEvent(event)
     }
     override fun performClick():Boolean{super.performClick();return true}
-    private fun cellWidth(cell:Cell):Double{paint.typeface=Typeface.MONOSPACE;paint.textSize=sp(settings.fontSize.toFloat());val glyphWidth=paint.measureText(cell.char.toString());val h=sp(settings.symbolSize*.22f);val codeWidth=cell.code.sumOf{if(it=='-')(h*3.1f).toDouble() else h.toDouble()}.toFloat()+max(0,cell.code.length-1)*h*1.3f;val contentWidth=max(glyphWidth,codeWidth)+dp(32f);return max(max(dp(70f).toDouble(),cell.duration*dp(130f)),contentWidth.toDouble())}
+    private fun cellWidth(cell:Cell):Double{paint.typeface=Typeface.MONOSPACE;paint.textSize=sp(settings.fontSize.toFloat());val glyphWidth=paint.measureText(cell.char.toString());val h=sp(settings.symbolSize*.22f);val codeWidth=if(!settings.showSymbols)0f else cell.code.sumOf{if(it=='-')(h*3.1f).toDouble() else h.toDouble()}.toFloat()+max(0,cell.code.length-1)*h*1.3f;val contentWidth=max(glyphWidth,codeWidth)+dp(32f);return max(max(dp(70f).toDouble(),cell.duration*dp(130f)),contentWidth.toDouble())}
     private fun drawCode(c:Canvas,code:String,cx:Float,y:Float,past:Boolean){val h=sp(settings.symbolSize*.22f);val dot=h;val dash=h*3.1f;val gap=h*1.3f;val totalW=code.sumOf{if(it=='-')dash.toDouble() else dot.toDouble()}.toFloat()+max(0,code.length-1)*gap;var x=cx-totalW/2;paint.color=if(past)withAlpha(settings.morseColor,70)else settings.morseColor;code.forEach{val w=if(it=='-')dash else dot;c.drawRoundRect(x,y-h/2,x+w,y+h/2,h/2,h/2,paint);x+=w+gap}}
     private fun dp(v:Float)=v*resources.displayMetrics.density;private fun sp(v:Float)=v*resources.displayMetrics.scaledDensity;private fun withAlpha(color:Int,a:Int)=Color.argb(a,Color.red(color),Color.green(color),Color.blue(color))
     companion object { const val AUDIO_LOOKAHEAD=.14;val MORSE=mapOf('A' to ".-",'B' to "-...",'C' to "-.-.",'D' to "-..",'E' to ".",'F' to "..-.",'G' to "--.",'H' to "....",'I' to "..",'J' to ".---",'K' to "-.-",'L' to ".-..",'M' to "--",'N' to "-.",'O' to "---",'P' to ".--.",'Q' to "--.-",'R' to ".-.",'S' to "...",'T' to "-",'U' to "..-",'V' to "...-",'W' to ".--",'X' to "-..-",'Y' to "-.--",'Z' to "--..",'0' to "-----",'1' to ".----",'2' to "..---",'3' to "...--",'4' to "....-",'5' to ".....",'6' to "-....",'7' to "--...",'8' to "---..",'9' to "----.") }
