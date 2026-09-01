@@ -1,0 +1,16 @@
+## Custom
+nohup.out
+_*
+.*
+!.gitignore
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
+node_modules
+creds
+build
+release
+output
+/tmp/
+/reports/
+LM-*

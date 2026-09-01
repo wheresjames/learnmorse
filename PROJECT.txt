@@ -1,0 +1,10 @@
+name            learnmorse
+version         1.0.0
+description     Learn morse code
+company         wheresjames
+author          Robert Umbehant
+email           learnmorse@wheresjames.com
+url             https://github.com/wheresjames/learnmorse
+repo            git+ssh://git@github.com/wheresjames/learnmorse.git
+bugs            https://github.com/wheresjames/learnmorse/issues
+license         MIT

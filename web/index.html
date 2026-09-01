@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Learn Morse</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">·−</span><div><strong>Learn Morse</strong><small>Rhythm becomes language</small></div></div>
+    <div class="top-actions"><span id="saveStatus" class="save-status">Saved</span><button id="settingsButton" class="icon-button" aria-label="Appearance settings">⚙</button></div>
+  </header>
+
+  <main>
+    <section class="stage-card">
+      <div class="stage-head"><div><span class="eyebrow">LIVE PRACTICE</span><h1 id="stageTitle">Ready when you are</h1></div><div class="stage-tools"><button id="markerStatus" class="marker-status" title="Reset marker position"></button><div class="key-hint"><kbd>Space</kbd> play / pause</div></div></div>
+      <div id="viewport" class="viewport" aria-label="Scrolling Morse practice display">
+        <div id="scanGlow" class="scan-glow"></div><div id="scanLine" class="scan-line" title="Drag to calibrate audio alignment"><span></span></div>
+        <div id="track" class="track"></div>
+        <div id="emptyStage" class="empty-stage"><span>Enter practice text below</span><small>Your characters and Morse patterns will appear here</small></div>
+      </div>
+      <div class="transport">
+        <button id="restartButton" class="round-button" title="Restart">◀</button>
+        <button id="playButton" class="play-button" aria-label="Play"><span class="play-icon">▶</span></button>
+        <div class="progress-wrap"><div class="time-row"><span id="currentTime">0:00</span><span id="remainingTime">0:00</span></div><input id="progress" type="range" min="0" max="1000" value="0" aria-label="Practice progress"></div>
+        <button id="repeatButton" class="round-button" title="Repeat continuously" aria-pressed="false">↻</button>
+        <button id="audioExportButton" class="round-button" title="Download WAV audio">⇩</button>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <div class="editor-card card">
+        <div class="section-title"><div><span class="eyebrow">PRACTICE TEXT</span><h2>What would you like to learn?</h2></div><span id="charCount">0 characters</span></div>
+        <textarea id="practiceText" maxlength="2000" spellcheck="false" placeholder="Type a message, callsign, or phrase…"></textarea>
+        <div class="save-row"><input id="textName" maxlength="80" placeholder="Name this practice text"><button id="saveTextButton" class="primary-button">Save text</button></div>
+      </div>
+      <aside class="library-card card">
+        <div class="section-title"><div><span class="eyebrow">YOUR LIBRARY</span><h2>Saved practice</h2></div><span id="libraryCount" class="count-pill">0</span></div>
+        <div id="library" class="library"></div>
+        <button id="restoreDefaultsButton" class="ghost-button restore-button">Restore default texts</button>
+      </aside>
+    </section>
+
+    <section class="controls-card card">
+      <div class="section-title"><div><span class="eyebrow">TIMING & TONE</span><h2>Shape your practice</h2></div><span class="tip">Set the rhythm at the character, word, and full-text level.</span></div>
+      <div class="slider-grid">
+        <label class="slider-control"><span><b>Character speed</b><output id="characterSpeedValue">20 WPM</output></span><span class="speed-range"><input id="characterSpeed" type="range" min="5" max="100"><i id="characterLowerLimit" class="limit-dot" aria-hidden="true"></i></span><small id="characterSpeedHint">Dots and dashes · minimum 15 WPM</small></label>
+        <label class="slider-control"><span><b>Word speed</b><output id="wordSpeedValue">15 WPM</output></span><span class="speed-range"><input id="wordSpeed" type="range" min="5" max="100"><i id="wordLowerLimit" class="limit-dot" aria-hidden="true"></i></span><small id="wordSpeedHint">Character cadence · minimum 15 WPM</small></label>
+        <label class="slider-control"><span><b>Text speed</b><output id="textSpeedValue">15 WPM</output></span><span class="speed-range"><input id="textSpeed" type="range" min="5" max="100"></span><small id="textSpeedHint">Overall reading pace · unrestricted</small></label>
+        <label class="slider-control"><span><b>Tone pitch</b><output id="tonePitchValue">650 Hz</output></span><input id="tonePitch" type="range" min="300" max="1200" step="10"><small>Comfortable range: 300–1200 Hz</small></label>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="settingsDialog">
+    <form method="dialog" class="modal"><div class="modal-head"><div><span class="eyebrow">APPEARANCE</span><h2>Make it yours</h2></div><button class="icon-button" value="close" aria-label="Close">×</button></div>
+      <div class="setting-list">
+        <label><span><b>Character size</b><small>Size of the scrolling text</small></span><input id="fontSize" type="range" min="36" max="120"><output id="fontSizeValue"></output></label>
+        <label><span><b>Morse symbol size</b><small>Dots and dashes beneath each character</small></span><input id="symbolSize" type="range" min="14" max="48"><output id="symbolSizeValue"></output></label>
+        <label><span><b>Tone volume</b><small>Playback loudness</small></span><input id="volume" type="range" min="0" max="100"><output id="volumeValue"></output></label>
+      </div>
+      <div class="color-grid">
+        <label>Characters<input id="foreground" type="color"></label><label>Morse symbols<input id="morseColor" type="color"></label><label>Background<input id="background" type="color"></label><label>Accent<input id="accent" type="color"></label><label>Playhead<input id="cursorColor" type="color"></label>
+      </div>
+      <div class="modal-foot"><button id="resetAppearance" type="button" class="ghost-button">Reset appearance</button><button value="close" class="primary-button">Done</button></div>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="app.js"></script>
+</body>
+</html>
