@@ -247,16 +247,26 @@ class MorseView(context:Context, initial:Settings):View(context) {
     var settings=initial;set(value){field=value;repeat=value.repeat;audio.pitch=value.pitch;audio.volume=value.volume;rebuild();invalidate()}
     var text="";set(value){field=value.replace(Regex("\\s+")," ");stop();elapsed=0.0;lastSound=-1;rebuild()}
     private val paint=Paint(Paint.ANTI_ALIAS_FLAG);private val cells=mutableListOf<Cell>();private val audio=MorseAudio();private var playing=false;private var elapsed=0.0;private var started=0L;private var lastSound=-1;private var total=0.0;private var draggingMarker=false;private var dragStartX=0f;private var dragStartOffset=0;private var markerMoved=false;private var lastMarkerTap=0L
+    private val scroller=OverScroller(context);private var velocityTracker:VelocityTracker?=null;private var scrubbing=false;private var scrubMoved=false;private var scrubLastX=0f;private var scrubStartX=0f;private var scrubStartY=0f
+    private var overscroll=0.0 // Visible pixels the track is pulled past an end; 0 while inside the practice.
+    private var overpull=0.0 // The undamped finger travel behind that pull.
+    private val touchSlop=ViewConfiguration.get(context).scaledTouchSlop;private val minFling=ViewConfiguration.get(context).scaledMinimumFlingVelocity;private val maxFling=ViewConfiguration.get(context).scaledMaximumFlingVelocity
     data class Cell(val char:Char,val code:String,val start:Double,val duration:Double)
-    init{setBackgroundColor(initial.background)}
-    private fun rebuild(){cells.clear();var at=0.0;text.forEach{ch->val code=MORSE[ch.uppercaseChar()]?:"";val duration=duration(ch,code);cells+=Cell(ch,code,at,duration);at+=duration};total=at;invalidate()}
+    init{setBackgroundColor(initial.background);scroller.setFriction(.01f)}
+    private fun rebuild(){releaseOverscroll();cells.clear();var at=0.0;text.forEach{ch->val code=MORSE[ch.uppercaseChar()]?:"";val duration=duration(ch,code);cells+=Cell(ch,code,at,duration);at+=duration};total=at;invalidate()}
     private fun duration(ch:Char,code:String):Double{if(ch==' ')return 12.0/settings.textWpm;if(code.isEmpty())return 12.0/settings.wordWpm;val units=code.fold(0){sum,mark->sum+if(mark=='-')3 else 1}+max(0,code.length-1);return max(units*1.2/settings.charWpm+3*1.2/settings.wordWpm,12.0/settings.wordWpm)}
-    fun toggle():Boolean{playing=!playing;if(playing){if(elapsed>=total)elapsed=0.0;started=SystemClock.elapsedRealtimeNanos()-(elapsed*1e9).toLong();postInvalidateOnAnimation()}else audio.stop();return playing}
-    fun restart(){elapsed=0.0;lastSound=-1;if(playing)started=SystemClock.elapsedRealtimeNanos();invalidate()}
-    fun stop(){playing=false;audio.stop();invalidate()}
+    fun toggle():Boolean{releaseOverscroll();playing=!playing;if(playing){if(elapsed>=total)elapsed=0.0;started=SystemClock.elapsedRealtimeNanos()-(elapsed*1e9).toLong();postInvalidateOnAnimation()}else audio.stop();return playing}
+    fun restart(){releaseOverscroll();elapsed=0.0;lastSound=-1;if(playing)started=SystemClock.elapsedRealtimeNanos();invalidate()}
+    fun stop(){releaseOverscroll();playing=false;audio.stop();invalidate()}
     override fun onDetachedFromWindow(){super.onDetachedFromWindow();audio.close()}
     override fun onDraw(c:Canvas){
         super.onDraw(c);c.drawColor(settings.background)
+        if(!playing&&scroller.computeScrollOffset()){
+            val position=scroller.currX.toDouble();val span=distanceAt(total)
+            elapsed=timeAt(position).coerceIn(0.0,total)
+            overscroll=if(position<0)position else if(position>span)position-span else 0.0
+            lastSound=-1;postInvalidateOnAnimation()
+        }else if(!playing&&!scrubbing&&scroller.isFinished)overscroll=0.0
         val baseMarker=width*.15f;val marker=(baseMarker+dp(settings.markerOffset.toFloat())).coerceIn(dp(20f),width-dp(20f))
         paint.shader=LinearGradient(marker-dp(52f),0f,marker+dp(52f),0f,intArrayOf(Color.TRANSPARENT,withAlpha(settings.marker,42),Color.TRANSPARENT),null,Shader.TileMode.CLAMP)
         c.drawRect(marker-dp(52f),0f,marker+dp(52f),height.toFloat(),paint);paint.shader=null
@@ -265,6 +275,7 @@ class MorseView(context:Context, initial:Settings):View(context) {
         if(settings.markerOffset!=0){paint.textAlign=Paint.Align.LEFT;paint.typeface=Typeface.DEFAULT_BOLD;paint.textSize=sp(9f);paint.color=withAlpha(settings.marker,220);c.drawText("CAL ${if(settings.markerOffset>0)"+" else ""}${settings.markerOffset} dp",dp(8f),height-dp(8f),paint)}
         var x=baseMarker.toDouble();var rem=elapsed
         for(cell in cells){val w=cellWidth(cell);if(rem<=cell.duration){x-=w*(rem/cell.duration);break};rem-=cell.duration;x-=w}
+        x-=overscroll
         paint.textAlign=Paint.Align.CENTER;paint.typeface=Typeface.MONOSPACE;paint.textSize=sp(settings.fontSize.toFloat())
         // With the code hidden the character is the only thing on the track, so centre it on the baseline.
         val centerY=if(settings.showSymbols)height*.43f else height/2f-(paint.fontMetrics.ascent+paint.fontMetrics.descent)/2f
@@ -274,17 +285,86 @@ class MorseView(context:Context, initial:Settings):View(context) {
     override fun onTouchEvent(event:MotionEvent):Boolean{
         val marker=width*.15f+dp(settings.markerOffset.toFloat())
         when(event.actionMasked){
-            MotionEvent.ACTION_DOWN->if(abs(event.x-marker)<=dp(30f)){draggingMarker=true;markerMoved=false;dragStartX=event.x;dragStartOffset=settings.markerOffset;parent.requestDisallowInterceptTouchEvent(true);return true}
-            MotionEvent.ACTION_MOVE->if(draggingMarker){if(abs(event.x-dragStartX)>dp(2f))markerMoved=true;val minOffset=(dp(20f)-width*.15f)/resources.displayMetrics.density;val maxOffset=(width-dp(20f)-width*.15f)/resources.displayMetrics.density;settings.markerOffset=(dragStartOffset+(event.x-dragStartX)/resources.displayMetrics.density).roundToInt().coerceIn(minOffset.roundToInt(),maxOffset.roundToInt());invalidate();return true}
-            MotionEvent.ACTION_UP->if(draggingMarker){draggingMarker=false;parent.requestDisallowInterceptTouchEvent(false);val now=SystemClock.uptimeMillis();if(!markerMoved&&now-lastMarkerTap<350){settings.markerOffset=0;Toast.makeText(context,"Marker calibration reset",Toast.LENGTH_SHORT).show()};lastMarkerTap=now;onMarkerOffsetChanged?.invoke(settings.markerOffset);performClick();invalidate();return true}
-            MotionEvent.ACTION_CANCEL->if(draggingMarker){draggingMarker=false;parent.requestDisallowInterceptTouchEvent(false);onMarkerOffsetChanged?.invoke(settings.markerOffset);return true}
+            MotionEvent.ACTION_DOWN->{
+                if(abs(event.x-marker)<=dp(30f)){draggingMarker=true;markerMoved=false;dragStartX=event.x;dragStartOffset=settings.markerOffset;parent.requestDisallowInterceptTouchEvent(true);return true}
+                if(!playing&&cells.isNotEmpty()){beginScrub(event);return true}
+            }
+            MotionEvent.ACTION_MOVE->{
+                if(draggingMarker){if(abs(event.x-dragStartX)>dp(2f))markerMoved=true;val minOffset=(dp(20f)-width*.15f)/resources.displayMetrics.density;val maxOffset=(width-dp(20f)-width*.15f)/resources.displayMetrics.density;settings.markerOffset=(dragStartOffset+(event.x-dragStartX)/resources.displayMetrics.density).roundToInt().coerceIn(minOffset.roundToInt(),maxOffset.roundToInt());invalidate();return true}
+                if(scrubbing){
+                    velocityTracker?.addMovement(event)
+                    // Claim the gesture only once it is clearly horizontal, so a vertical drag still scrolls the page.
+                    if(!scrubMoved){
+                        val dx=abs(event.x-scrubStartX);val dy=abs(event.y-scrubStartY)
+                        if(dx>touchSlop&&dx>dy){scrubMoved=true;scrubLastX=event.x;parent.requestDisallowInterceptTouchEvent(true)}
+                        return true
+                    }
+                    val step=event.x-scrubLastX;scrubLastX=event.x;scrubBy(step.toDouble());invalidate();return true
+                }
+            }
+            MotionEvent.ACTION_UP->{
+                if(draggingMarker){draggingMarker=false;parent.requestDisallowInterceptTouchEvent(false);val now=SystemClock.uptimeMillis();if(!markerMoved&&now-lastMarkerTap<350){settings.markerOffset=0;Toast.makeText(context,"Marker calibration reset",Toast.LENGTH_SHORT).show()};lastMarkerTap=now;onMarkerOffsetChanged?.invoke(settings.markerOffset);performClick();invalidate();return true}
+                if(scrubbing){endScrub(event,true);return true}
+            }
+            MotionEvent.ACTION_CANCEL->{
+                if(draggingMarker){draggingMarker=false;parent.requestDisallowInterceptTouchEvent(false);onMarkerOffsetChanged?.invoke(settings.markerOffset);return true}
+                if(scrubbing){endScrub(event,false);return true}
+            }
         };return super.onTouchEvent(event)
     }
     override fun performClick():Boolean{super.performClick();return true}
+    private fun beginScrub(event:MotionEvent){
+        scroller.abortAnimation();overpull=undamp(overscroll);scrubbing=true;scrubMoved=false
+        scrubStartX=event.x;scrubStartY=event.y;scrubLastX=event.x
+        velocityTracker=VelocityTracker.obtain().apply{addMovement(event)}
+    }
+    private fun endScrub(event:MotionEvent,allowFling:Boolean){
+        val tracker=velocityTracker
+        if(allowFling&&scrubMoved&&tracker!=null){
+            tracker.addMovement(event);tracker.computeCurrentVelocity(1000,maxFling.toFloat())
+            // The track moves opposite the finger, so a leftward flick runs the practice forward.
+            val velocity=-tracker.xVelocity;val span=distanceAt(total)
+            // The fling may overshoot an end by overfling(); OverScroller springs it back on its own.
+            if(overscroll==0.0&&abs(velocity)>minFling&&span>0)scroller.fling(distanceAt(elapsed).roundToInt(),0,velocity.roundToInt(),0,0,span.roundToInt(),0,0,overfling(),0)
+        }
+        tracker?.recycle();velocityTracker=null
+        if(!scrubMoved)performClick()
+        scrubbing=false;scrubMoved=false;overpull=0.0
+        if(scroller.isFinished&&overscroll!=0.0)scroller.springBack((distanceAt(elapsed)+overscroll).roundToInt(),0,0,distanceAt(total).roundToInt(),0,0)
+        parent.requestDisallowInterceptTouchEvent(false);invalidate()
+    }
+    private fun scrubBy(dx:Double){
+        val span=distanceAt(total);val target=distanceAt(elapsed)+overpull-dx
+        when{
+            target<0->{elapsed=0.0;overpull=target}
+            target>span->{elapsed=total;overpull=target-span}
+            else->{elapsed=timeAt(target);overpull=0.0}
+        }
+        overscroll=damp(overpull);lastSound=-1
+    }
+    private fun releaseOverscroll(){scroller.abortAnimation();overscroll=0.0;overpull=0.0}
+    private fun overfling()=(width*.22f).roundToInt()
+    /** How far a rubber band stretches: resistance grows with the pull and never passes [rubberLimit]. */
+    private fun rubberLimit()=max(dp(80f).toDouble(),width*.5)
+    private fun damp(pull:Double):Double{val limit=rubberLimit();return sign(pull)*(1-1/(abs(pull)*RUBBER_TENSION/limit+1))*limit}
+    private fun undamp(stretch:Double):Double{val limit=rubberLimit();val s=abs(stretch).coerceAtMost(limit*.98);return sign(stretch)*limit/RUBBER_TENSION*(1/(1-s/limit)-1)}
+    /** Pixels from the start of the track to [time]; cells are not uniformly wide, so this walks them. */
+    private fun distanceAt(time:Double):Double{
+        var remaining=time;var distance=0.0
+        for(cell in cells){val w=cellWidth(cell);if(remaining<=cell.duration)return distance+w*(remaining/cell.duration);remaining-=cell.duration;distance+=w}
+        return distance
+    }
+    /** Inverse of [distanceAt]. */
+    private fun timeAt(distance:Double):Double{
+        if(distance<=0)return 0.0
+        var remaining=distance;var time=0.0
+        for(cell in cells){val w=cellWidth(cell);if(remaining<=w)return time+cell.duration*(remaining/w);remaining-=w;time+=cell.duration}
+        return total
+    }
     private fun cellWidth(cell:Cell):Double{paint.typeface=Typeface.MONOSPACE;paint.textSize=sp(settings.fontSize.toFloat());val glyphWidth=paint.measureText(cell.char.toString());val h=sp(settings.symbolSize*.22f);val codeWidth=if(!settings.showSymbols)0f else cell.code.sumOf{if(it=='-')(h*3.1f).toDouble() else h.toDouble()}.toFloat()+max(0,cell.code.length-1)*h*1.3f;val contentWidth=max(glyphWidth,codeWidth)+dp(32f);return max(max(dp(70f).toDouble(),cell.duration*dp(130f)),contentWidth.toDouble())}
     private fun drawCode(c:Canvas,code:String,cx:Float,y:Float,past:Boolean){val h=sp(settings.symbolSize*.22f);val dot=h;val dash=h*3.1f;val gap=h*1.3f;val totalW=code.sumOf{if(it=='-')dash.toDouble() else dot.toDouble()}.toFloat()+max(0,code.length-1)*gap;var x=cx-totalW/2;paint.color=if(past)withAlpha(settings.morseColor,70)else settings.morseColor;code.forEach{val w=if(it=='-')dash else dot;c.drawRoundRect(x,y-h/2,x+w,y+h/2,h/2,h/2,paint);x+=w+gap}}
     private fun dp(v:Float)=v*resources.displayMetrics.density;private fun sp(v:Float)=v*resources.displayMetrics.scaledDensity;private fun withAlpha(color:Int,a:Int)=Color.argb(a,Color.red(color),Color.green(color),Color.blue(color))
-    companion object { const val AUDIO_LOOKAHEAD=.14;val MORSE=mapOf('A' to ".-",'B' to "-...",'C' to "-.-.",'D' to "-..",'E' to ".",'F' to "..-.",'G' to "--.",'H' to "....",'I' to "..",'J' to ".---",'K' to "-.-",'L' to ".-..",'M' to "--",'N' to "-.",'O' to "---",'P' to ".--.",'Q' to "--.-",'R' to ".-.",'S' to "...",'T' to "-",'U' to "..-",'V' to "...-",'W' to ".--",'X' to "-..-",'Y' to "-.--",'Z' to "--..",'0' to "-----",'1' to ".----",'2' to "..---",'3' to "...--",'4' to "....-",'5' to ".....",'6' to "-....",'7' to "--...",'8' to "---..",'9' to "----.") }
+    companion object { const val AUDIO_LOOKAHEAD=.14;const val RUBBER_TENSION=.55;val MORSE=mapOf('A' to ".-",'B' to "-...",'C' to "-.-.",'D' to "-..",'E' to ".",'F' to "..-.",'G' to "--.",'H' to "....",'I' to "..",'J' to ".---",'K' to "-.-",'L' to ".-..",'M' to "--",'N' to "-.",'O' to "---",'P' to ".--.",'Q' to "--.-",'R' to ".-.",'S' to "...",'T' to "-",'U' to "..-",'V' to "...-",'W' to ".--",'X' to "-..-",'Y' to "-.--",'Z' to "--..",'0' to "-----",'1' to ".----",'2' to "..---",'3' to "...--",'4' to "....-",'5' to ".....",'6' to "-....",'7' to "--...",'8' to "---..",'9' to "----.") }
 }
 
 class MorseAudio {
