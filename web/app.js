@@ -19,6 +19,9 @@ let playing=false,elapsed=0,startAt=0,totalDuration=0,lastIndex=-1,raf=0,audio=n
 let storageMode='memory';
 const LOCAL_STORAGE_KEY='learnmorse.state.v1';
 const $=id=>document.getElementById(id);
+// Chromium defines a built-in window.viewport, which shadows the named access
+// that every other element id here relies on, so bind this one explicitly.
+const viewportEl=$('viewport');
 const settingIds=['characterSpeed','wordSpeed','textSpeed','tonePitch','fontSize','symbolSize','foreground','morseColor','background','accent','cursorColor','volume'];
 async function load(){
   let loaded=null;
@@ -71,7 +74,7 @@ function applyMarkerOffset(){
 }
 function applySymbols(){
   const show=!!state.settings.showSymbols;
-  viewport.classList.toggle('hide-symbols',!show);
+  viewportEl.classList.toggle('hide-symbols',!show);
   symbolsButton.classList.toggle('active',show);
   symbolsButton.setAttribute('aria-pressed',String(show));
   symbolsButton.textContent=show?'Hide Morse symbols':'Show Morse symbols';
@@ -105,7 +108,7 @@ function sizeCell(cell){const contentWidth=Math.max(cell.querySelector('.glyph')
 function sizeCells(){[...track.children].forEach(sizeCell)}
 function renderMorse(code){return [...code].map(mark=>`<i class="morse-mark morse-${mark==='.'?'dot':'dash'}"></i>`).join('')}
 function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function positionTrack(){const cells=[...track.children];let x=viewport.clientWidth*.15;if(cells.length){let remaining=elapsed;for(const cell of cells){const d=+cell.dataset.duration,w=cell.offsetWidth;if(remaining<=d){x-=w*(remaining/d);break}remaining-=d;x-=w}}track.style.transform=`translate3d(${x}px,-50%,0)`;progress.value=totalDuration?elapsed/totalDuration*1000:0;cells.forEach((c,i)=>{c.classList.toggle('past',+c.dataset.start+(+c.dataset.duration)<=elapsed);c.classList.toggle('active',i===currentIndex())})}
+function positionTrack(){const cells=[...track.children];let x=viewportEl.clientWidth*.15;if(cells.length){let remaining=elapsed;for(const cell of cells){const d=+cell.dataset.duration,w=cell.offsetWidth;if(remaining<=d){x-=w*(remaining/d);break}remaining-=d;x-=w}}track.style.transform=`translate3d(${x}px,-50%,0)`;progress.value=totalDuration?elapsed/totalDuration*1000:0;cells.forEach((c,i)=>{c.classList.toggle('past',+c.dataset.start+(+c.dataset.duration)<=elapsed);c.classList.toggle('active',i===currentIndex())})}
 function currentIndex(){return [...track.children].findIndex(c=>elapsed>=+c.dataset.start&&elapsed<+c.dataset.start+(+c.dataset.duration))}
 function tick(now){if(!playing)return;elapsed=Math.max(0,Math.min(totalDuration,(now-startAt)/1000));positionTrack();updateTime();if(elapsed>=totalDuration){stopAudioScheduler();if(state.settings.repeat){elapsed=0;lastIndex=-1;positionTrack();updateTime();startAudioTimeline().then(()=>{if(playing)raf=requestAnimationFrame(tick)});return}playing=false;playButton.innerHTML='▶';return}raf=requestAnimationFrame(tick)}
 function ensureAudio(){
@@ -200,8 +203,8 @@ scanLine.onpointerdown=e=>{
   e.preventDefault();scanLine.setPointerCapture(e.pointerId);scanLine.classList.add('dragging');
   const startX=e.clientX,startOffset=+state.settings.markerOffset||0;
   scanLine.onpointermove=move=>{
-    const base=viewport.clientWidth*.15;
-    state.settings.markerOffset=Math.round(Math.max(20-base,Math.min(viewport.clientWidth-20-base,startOffset+move.clientX-startX)));
+    const base=viewportEl.clientWidth*.15;
+    state.settings.markerOffset=Math.round(Math.max(20-base,Math.min(viewportEl.clientWidth-20-base,startOffset+move.clientX-startX)));
     applyMarkerOffset();
   };
   scanLine.onpointerup=scanLine.onpointercancel=()=>{
